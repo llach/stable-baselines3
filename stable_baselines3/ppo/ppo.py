@@ -81,6 +81,10 @@ class PPO(OnPolicyAlgorithm):
         max_grad_norm: float = 0.5,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
+        use_caps: bool = False,
+        lambda_s: float = 0.0,
+        lambda_t: float = 0.0,
+        eps_s: Union[float, list[float]] = 1.,
         target_kl: Optional[float] = None,
         tensorboard_log: Optional[str] = None,
         create_eval_env: bool = False,
@@ -147,6 +151,16 @@ class PPO(OnPolicyAlgorithm):
         self.clip_range = clip_range
         self.clip_range_vf = clip_range_vf
         self.target_kl = target_kl
+
+        # CAPS switch and coefficients
+        self.use_caps = use_caps
+        self.lambda_s = lambda_s
+        self.lambda_t = lambda_t
+
+        if type(eps_s) == float:
+            self.eps_s = th.Tensor([eps_s])
+        else:
+            self.eps_s = th.Tensor(eps_s)
 
         if _init_setup_model:
             self._setup_model()
@@ -236,7 +250,7 @@ class PPO(OnPolicyAlgorithm):
                     entropy_loss = -th.mean(entropy)
 
                 entropy_losses.append(entropy_loss.item())
-
+                
                 loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
 
                 # Calculate approximate form of reverse KL Divergence for early stopping

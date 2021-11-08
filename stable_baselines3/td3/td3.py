@@ -79,6 +79,10 @@ class TD3(OffPolicyAlgorithm):
         policy_delay: int = 2,
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
+        use_caps: bool = False,
+        lambda_s: float = 0.0,
+        lambda_t: float = 0.0,
+        eps_s: Union[float, list[float]] = 1.,
         tensorboard_log: Optional[str] = None,
         create_eval_env: bool = False,
         policy_kwargs: Optional[Dict[str, Any]] = None,
@@ -119,6 +123,16 @@ class TD3(OffPolicyAlgorithm):
         self.target_noise_clip = target_noise_clip
         self.target_policy_noise = target_policy_noise
 
+        # CAPS switch and coefficients
+        self.use_caps = use_caps
+        self.lambda_s = lambda_s
+        self.lambda_t = lambda_t
+
+        if type(eps_s) == float:
+            self.eps_s = th.Tensor([eps_s])
+        else:
+            self.eps_s = th.Tensor(eps_s)
+
         if _init_setup_model:
             self._setup_model()
 
@@ -139,7 +153,7 @@ class TD3(OffPolicyAlgorithm):
         # Update learning rate according to lr schedule
         self._update_learning_rate([self.actor.optimizer, self.critic.optimizer])
 
-        actor_losses, critic_losses = [], []
+        actor_losses, critic_losses, caps_t_losses, caps_s_losses = [], [], [], []
 
         for _ in range(gradient_steps):
 
@@ -172,9 +186,27 @@ class TD3(OffPolicyAlgorithm):
 
             # Delayed policy updates
             if self._n_updates % self.policy_delay == 0:
+                # avoid repeated action calculations on same observation in case CAPS is used
+                actions = self.actor(replay_data.observations)
+
                 # Compute actor loss
-                actor_loss = -self.critic.q1_forward(replay_data.observations, self.actor(replay_data.observations)).mean()
+                actor_loss = -self.critic.q1_forward(replay_data.observations, actions).mean()
                 actor_losses.append(actor_loss.item())
+
+                # # Optional CAPS Losses
+                if self.use_caps: 
+                    # temporal smoothness loss
+                    if self.lambda_t > 0.0:
+                        caps_t_loss = self.lambda_t * th.norm(self.actor(replay_data.next_observations)-actions, p=2).mean()
+                        caps_t_losses.append(caps_t_loss.item())
+
+                        actor_loss += caps_t_loss
+                    # spatial smoothness loss
+                    if self.lambda_s > 0.0:
+                        caps_s_loss = self.lambda_s * th.norm(self.actor(th.normal(replay_data.observations, th.tile(self.eps_s, (replay_data.observations.shape[0], 1))))-actions, p=2).mean()
+                        caps_s_losses.append(caps_s_loss.item())
+
+                        actor_loss += caps_s_loss
 
                 # Optimize the actor
                 self.actor.optimizer.zero_grad()
@@ -187,6 +219,10 @@ class TD3(OffPolicyAlgorithm):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         if len(actor_losses) > 0:
             self.logger.record("train/actor_loss", np.mean(actor_losses))
+        if len(caps_t_losses) > 0:
+            self.logger.record("train/caps_t_loss", np.mean(caps_t_losses))
+        if len(caps_s_losses) > 0:
+            self.logger.record("train/caps_s_loss", np.mean(caps_s_losses))
         self.logger.record("train/critic_loss", np.mean(critic_losses))
 
     def learn(
