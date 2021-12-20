@@ -183,7 +183,7 @@ class ResultsWriter:
         self.file_handler.write("#%s\n" % json.dumps(header))
         self.logger = csv.DictWriter(self.file_handler, fieldnames=("r", "l", "t") + extra_keys)
         self.logger.writeheader()
-        self.file_handler.flush()
+        self.flush_repeat()
 
     def write_row(self, epinfo: Dict[str, Union[float, int]]) -> None:
         """
@@ -193,7 +193,21 @@ class ResultsWriter:
         """
         if self.logger:
             self.logger.writerow(epinfo)
-            self.file_handler.flush()
+            self.flush_repeat()
+    
+    def flush_repeat(self, reps: int = 10):
+        """
+        some compute instances fail sometimes when writing, so we try N times.
+        """
+        for i in range(reps):
+            try:
+                self.file_handler.flush()
+                break
+            except Exception as e:
+                time.sleep(1)
+                if i == 9:
+                    print("FLUSHING FAILED\n", e)
+                    exit(-1)
 
     def close(self) -> None:
         """
