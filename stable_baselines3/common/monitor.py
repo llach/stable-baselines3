@@ -204,7 +204,7 @@ class ResultsWriter:
                 self.file_handler.flush()
                 break
             except Exception as e:
-                time.sleep(1)
+                time.sleep(i*2)
                 if i == 9:
                     print("FLUSHING FAILED\n", e)
                     exit(-1)
