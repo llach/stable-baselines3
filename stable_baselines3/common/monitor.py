@@ -207,7 +207,6 @@ class ResultsWriter:
                 time.sleep(i*2)
                 if i == 9:
                     print("FLUSHING FAILED\n", e)
-                    exit(-1)
 
     def close(self) -> None:
         """
