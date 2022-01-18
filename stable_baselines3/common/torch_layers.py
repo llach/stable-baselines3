@@ -117,18 +117,22 @@ def create_mlp(
     """
 
     if len(net_arch) > 0:
-        modules = [nn.Linear(input_dim, net_arch[0]), activation_fn()]
+        if activation_fn:
+            modules = [nn.Linear(input_dim, net_arch[0]), activation_fn()]
+        else:
+            modules = [nn.Linear(input_dim, net_arch[0])]
     else:
         modules = []
 
     for idx in range(len(net_arch) - 1):
         modules.append(nn.Linear(net_arch[idx], net_arch[idx + 1]))
-        modules.append(activation_fn())
+        if activation_fn:
+            modules.append(activation_fn())
 
     if output_dim > 0:
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else input_dim
         modules.append(nn.Linear(last_layer_dim, output_dim))
-    if squash_output:
+    if squash_output and activation_fn:
         modules.append(nn.Tanh())
     return modules
 
@@ -179,7 +183,8 @@ class MlpExtractor(nn.Module):
             if isinstance(layer, int):  # Check that this is a shared layer
                 # TODO: give layer a meaningful name
                 shared_net.append(nn.Linear(last_layer_dim_shared, layer))  # add linear of size layer
-                shared_net.append(activation_fn())
+                if activation_fn:
+                    shared_net.append(activation_fn())
                 last_layer_dim_shared = layer
             else:
                 assert isinstance(layer, dict), "Error: the net_arch list can only contain ints and dicts"
@@ -200,13 +205,15 @@ class MlpExtractor(nn.Module):
             if pi_layer_size is not None:
                 assert isinstance(pi_layer_size, int), "Error: net_arch[-1]['pi'] must only contain integers."
                 policy_net.append(nn.Linear(last_layer_dim_pi, pi_layer_size))
-                policy_net.append(activation_fn())
+                if activation_fn:
+                    policy_net.append(activation_fn())
                 last_layer_dim_pi = pi_layer_size
 
             if vf_layer_size is not None:
                 assert isinstance(vf_layer_size, int), "Error: net_arch[-1]['vf'] must only contain integers."
                 value_net.append(nn.Linear(last_layer_dim_vf, vf_layer_size))
-                value_net.append(activation_fn())
+                if activation_fn:
+                    value_net.append(activation_fn())
                 last_layer_dim_vf = vf_layer_size
 
         # Save dim, used to create the distributions
