@@ -192,6 +192,7 @@ class PPO(OnPolicyAlgorithm):
 
         entropy_losses = []
         pg_losses, value_losses = [], []
+        caps_s_losses, caps_t_losses= [], []
         clip_fractions = []
 
         continue_training = True
@@ -223,6 +224,26 @@ class PPO(OnPolicyAlgorithm):
                 policy_loss_1 = advantages * ratio
                 policy_loss_2 = advantages * th.clamp(ratio, 1 - clip_range, 1 + clip_range)
                 policy_loss = -th.min(policy_loss_1, policy_loss_2).mean()
+
+                if self.use_caps: 
+                    # temporal smoothness loss
+                    if self.lambda_t > 0.0:
+                        next_actions, _, _ = self.policy.forward(rollout_data.next_observations)
+
+                        caps_t_loss = self.lambda_t * th.norm(next_actions-actions, p=2).mean()
+                        caps_t_losses.append(caps_t_loss.item())
+
+                        policy_loss += caps_t_loss
+                    # spatial smoothness loss
+                    if self.lambda_s > 0.0:
+                        close_actions, _, _ = self.policy.forward(th.normal(rollout_data.observations, th.tile(self.eps_s, (rollout_data.observations.shape[0], 1))))
+
+                        caps_s_loss = self.lambda_s * th.norm(close_actions-actions, p=2).mean()
+                        caps_s_losses.append(caps_s_loss.item())
+
+                        policy_loss += caps_s_loss
+
+                # CAPS loss additions
 
                 # Logging
                 pg_losses.append(policy_loss.item())
@@ -296,6 +317,10 @@ class PPO(OnPolicyAlgorithm):
         self.logger.record("train/clip_range", clip_range)
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
+        if len(caps_t_losses) > 0:
+            self.logger.record("train/caps_t_loss", np.mean(caps_t_losses))
+        if len(caps_s_losses) > 0:
+            self.logger.record("train/caps_s_loss", np.mean(caps_s_losses))
 
     def learn(
         self,
